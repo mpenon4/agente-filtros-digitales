@@ -7,7 +7,7 @@
 
 ## 📌 Descripción
 
-Este proyecto implementa un **agente experto** que recomienda, diseña y despliega filtros digitales **FIR e IIR** orientados al procesamiento de señales médicas (señal de glucosa/CGM, fs = 10 Hz). El flujo completo va desde la interfaz gráfica en MATLAB hasta la ejecución en un microcontrolador **ESP32** con visualización en tiempo real.
+Este proyecto implementa un **agente experto** que recomienda, diseña y despliega filtros digitales **FIR e IIR** orientados a distintos tipos de señales (medicas, industriales, telecomunicaciones,etc) . El flujo completo va desde la interfaz gráfica en MATLAB hasta la ejecución en un microcontrolador **ESP32** con visualización en tiempo real.
 
 ---
 
@@ -117,7 +117,11 @@ La función `stream_esp32.m` abre automáticamente una figura con:
 
 ---
 
-## 👨‍💻 Autor
+## 👨‍💻 Autores
 
 **Marcos Penon** — UTN · Técnicas Digitales III  
 📧 penonmarcos@yahoo.com.ar
+
+**Lautaro Guiglioni** — UTN · Técnicas Digitales III  
+
+**Alejandro Cafaro** — UTN · Técnicas Digitales III  
