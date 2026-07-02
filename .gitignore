@@ -1,0 +1,27 @@
+# MATLAB generated files
+*.asv
+*.m~
+*.mlx
+slprj/
+*.mex*
+*.mexa64
+*.mexw32
+*.mexw64
+*.mexmaci64
+
+# Output / reports
+outputs/
+work/
+*.pdf
+*.txt
+
+# MATLAB App Designer
+*.mlapp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.agents/
+.codex/
