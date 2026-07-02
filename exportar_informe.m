@@ -86,7 +86,55 @@ for k = 1:numel(filtro.etapas)
 end
 
 fprintf(fid, '\n');
-fprintf(fid, '5. NOTAS DE IMPLEMENTACION\n');
+fprintf(fid, '5. PROTOCOLO DE COMUNICACION UART (ESP32 -> MATLAB)\n');
+fprintf(fid, 'Interfaz fisica: UART/USB-CDC\n');
+fprintf(fid, 'Velocidad: 115200 baudios\n');
+fprintf(fid, 'Configuracion de trama: 8 bits de datos, sin paridad, 1 bit de stop (8N1)\n');
+fprintf(fid, 'Terminador de linea: CR+LF (\\r\\n, generado por Serial.println())\n');
+fprintf(fid, 'Formato: texto CSV, separador decimal punto (.), sin notacion cientifica\n');
+fprintf(fid, '\n');
+fprintf(fid, 'Cabecera (primera linea, enviada una sola vez al arrancar):\n');
+fprintf(fid, '  crudo,filtrado\n');
+fprintf(fid, '\n');
+fprintf(fid, 'Lineas de datos (una por muestra, a fs = %.6g Hz, cada %.1f ms):\n', ...
+    filtro.fs, 1000 / filtro.fs);
+fprintf(fid, '  <crudo>,<filtrado>\n');
+fprintf(fid, 'Ejemplo real:\n');
+fprintf(fid, '  crudo,filtrado\n');
+fprintf(fid, '  0.81234,0.00123\n');
+fprintf(fid, '  0.80998,0.00109\n');
+fprintf(fid, '\n');
+fprintf(fid, 'Descripcion de columnas:\n');
+fprintf(fid, '  crudo    — muestra directa del ADC (sin procesar), rango tipico 0.0 a 1.0\n');
+fprintf(fid, '  filtrado — muestra procesada por el filtro cargado en el ESP32\n');
+fprintf(fid, '\n');
+fprintf(fid, 'Filtro activo en el ESP32 (segun este diseno):\n');
+fprintf(fid, '  Cadena: %s\n', filtro.tipo);
+for k = 1:numel(filtro.etapas)
+    e = filtro.etapas(k);
+    if strcmp(e.clase, 'FIR')
+        fprintf(fid, '  Etapa %d: FIR %s, orden %d, fc = %s Hz, %d coeficientes b[n]\n', ...
+            k, upper(e.respuesta), e.orden, mat2str(e.frecuencia, 6), numel(e.b));
+    elseif strcmp(e.clase, 'IIR')
+        fprintf(fid, '  Etapa %d: IIR %s (%s), orden %d, fc = %s Hz, %d secciones SOS\n', ...
+            k, upper(e.respuesta), e.prototipo, e.orden, mat2str(e.frecuencia, 6), size(e.sos, 1));
+    else
+        fprintf(fid, '  Etapa %d: %s %s, orden %d\n', k, e.clase, upper(e.respuesta), e.orden);
+    end
+end
+fprintf(fid, '\n');
+fprintf(fid, 'Recepcion en MATLAB (ejemplo minimo con serialport moderno):\n');
+fprintf(fid, '  s = serialport("COMX", 115200);\n');
+fprintf(fid, '  configureTerminator(s, "CR/LF");\n');
+fprintf(fid, '  flush(s);\n');
+fprintf(fid, '  readline(s);  %% descartar cabecera\n');
+fprintf(fid, '  while true\n');
+fprintf(fid, '      linea = readline(s);\n');
+fprintf(fid, '      vals = sscanf(linea, "%%f,%%f");\n');
+fprintf(fid, '      crudo = vals(1);  filtrado = vals(2);\n');
+fprintf(fid, '  end\n');
+fprintf(fid, '\n');
+fprintf(fid, '6. NOTAS DE IMPLEMENTACION\n');
 fprintf(fid, '- Para ESP32/STM32 puede usarse float32 para coeficientes y estados.\n');
 fprintf(fid, '- Para Arduino UNO conviene revisar memoria, usar pocas etapas IIR SOS y evitar FIR largos.\n');
 fprintf(fid, '- En IIR no implementar orden alto como forma directa unica; usar SOS/biquads para estabilidad numerica.\n');
