@@ -117,7 +117,11 @@ La función `stream_esp32.m` abre automáticamente una figura con:
 
 ---
 
-## 👨‍💻 Autor
+## 👨‍💻 Autores
 
 **Marcos Penon** — UTN · Técnicas Digitales III  
 📧 penonmarcos@yahoo.com.ar
+
+**Lautaro Guiglioni** — UTN · Técnicas Digitales III  
+
+**Alejandro Cafaro** — UTN · Técnicas Digitales III  
