@@ -377,9 +377,6 @@ actualizarCaso();
     end
 
     function enviarEsp32(~, ~)
-        if isempty(app.filtro)
-            crearFiltro();
-        end
         try
             cerrarStreamActual();
             cerrarSerialActual();
@@ -388,23 +385,23 @@ actualizarCaso();
             baudios = round(app.baudios.Value);
             app.serial = serialport(puerto, baudios, 'Timeout', 3);
 
-            % El ESP32 se resetea al abrir el puerto (toggle de DTR/RTS).
-            % Esperamos a que termine de bootear antes de mandar nada,
-            % y descartamos el log de arranque que haya quedado en el buffer.
-            app.lblSerial.Text = sprintf('Conectando a %s, esperando reinicio del ESP32...', puerto);
+            % Esperar reinicio del ESP32 (DTR/RTS toggle) y limpiar buffer.
+            app.lblSerial.Text = sprintf('Conectando a %s...', puerto);
             drawnow;
-            pause(3.0);
+            pause(2.0);
             flush(app.serial);
 
-            resultados = enviar_cadena_esp32(app.serial, app.filtro, entradasActuales());
-            ok = all([resultados.ack]);
-            if ok
-                app.lblSerial.Text = sprintf('Conectado a %s. Coeficientes enviados y monitoreo en vivo abierto.', puerto);
+            % Abrir directamente la ventana de monitoreo en vivo.
+            % El ESP32 ya debe estar en modo streaming (8 bytes/muestra).
+            app.lblSerial.Text = sprintf('Conectado a %s — monitoreo en vivo abierto.', puerto);
+            drawnow;
+            fcFIR = 0.5;
+            fcIIR = 0.01;
+            if ~isempty(app.filtro)
                 [fcFIR, fcIIR] = frecuenciasStreaming(app.filtro);
-                app.stream = stream_esp32(app.serial, 200, app.fs.Value, fcFIR, fcIIR);
-            else
-                app.lblSerial.Text = sprintf('Error: Envio de coeficientes incompleto a %s (sin ACK).', puerto);
             end
+            app.stream = stream_esp32(app.serial, 200, app.fs.Value, fcFIR, fcIIR);
+
         catch err
             cerrarSerialActual();
             pause(0.2);
