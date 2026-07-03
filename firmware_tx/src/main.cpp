@@ -1,97 +1,91 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// main.cpp — ESP32 Transmisor (TX)
-// ═══════════════════════════════════════════════════════════════════════════
+// main_emisor_tx.cpp
+// ESP32 Emisor - Envía datos REALES de PPG (fotopletismografía) a 10 Hz por UART2 (GPIO17)
 //
-// Lee la señal del ADC (o genera una señal sintética de prueba) y la
-// transmite al Receptor por UART2 a exactamente fs = 10 Hz (100 ms).
+// Fuente de datos: registro 100001_PPG (300 muestras, ~30 s a 10 Hz),
+// unidades arbitrarias (a.u.) tal como fueron registradas.
 //
 // Conexión física:
-//   GND  Transmisor ──── GND  Receptor
-//   GPIO17 (TX2) Transmisor ──► GPIO16 (RX2) Receptor
+//   GND Emisor -> GND Receptor
+//   GPIO17 (TX2) Emisor -> GPIO16 (RX2) Receptor
 //
-// ═══════════════════════════════════════════════════════════════════════════
-// IMPORTANTE: La frecuencia de muestreo DEBE ser 10 Hz para que los
-// filtros diseñados (FIR fc=0.5 Hz, IIR fc=0.01 Hz) funcionen bien.
-// ═══════════════════════════════════════════════════════════════════════════
+// IMPORTANTE: FS_HZ = 10 Hz para que los filtros del receptor (FIR fc=0.5 Hz,
+// IIR fc=0.01 Hz) funcionen correctamente. El array tiene 300 muestras = 30 s.
 
 #include <Arduino.h>
 
-// ── Configuración ─────────────────────────────────────────────────────────
-#define PIN_TX2         17          // GPIO de transmisión UART2
-#define PIN_ADC         34          // GPIO de entrada analógica (ADC1_CH6)
-#define BAUD_UART       115200
-#define FS_HZ           10          // Frecuencia de muestreo: 10 Hz
-#define PERIODO_MS      (1000 / FS_HZ)  // = 100 ms
+#define FS_HZ          10
+#define PERIODO_US     (1000000UL / FS_HZ)   // 100 000 µs = 100 ms
 
-// Si USAR_ADC_REAL es true, lee del ADC real.
-// Si es false, genera una señal sintética para pruebas sin hardware.
-#define USAR_ADC_REAL   false
+// --- SECCIÓN: DATOS REALES DEL PACIENTE (señal PPG, 300 muestras) ---
+#define CANTIDAD_DATOS 300
+static const float datos_paciente[CANTIDAD_DATOS] PROGMEM = {
+    -128.9152f, -128.7920f, -128.9284f, -128.7951f, -128.9058f, -128.7576f, -128.7485f, -128.7557f,
+    -128.9179f, -128.9603f, -128.8572f, -128.8765f, -128.9064f, -128.8977f, -128.8874f, -128.8750f,
+    -129.0240f, -128.8648f, -128.8594f, -128.8561f, -128.8383f, -128.8339f, -128.9627f, -128.9624f,
+    -128.9454f, -128.7981f, -128.9233f, -128.7792f, -128.7672f, -128.7725f, -128.7968f, -128.8084f,
+    -128.8329f, -129.0015f, -128.8119f, -128.8217f, -128.8624f, -128.8530f, -128.8451f, -128.9830f,
+    -128.8108f, -128.8219f, -128.8185f, -128.8181f, -128.8061f, -128.7981f, -128.7898f, -128.9130f,
+    -128.9058f, -128.7619f, -128.7664f, -128.7876f, -128.9545f, -128.9792f, -128.8740f, -129.0489f,
+    -128.9148f, -128.9003f, -128.8760f, -128.8803f, -128.8720f, -128.8085f, -128.8430f, -128.8350f,
+    -128.8309f, -128.9330f, -128.9298f, -128.7994f, -128.7998f, -128.7959f, -128.9341f, -128.9179f,
+    -128.7809f, -128.7820f, -128.7973f, -128.9993f, -128.8724f, -128.8990f, -128.8825f, -128.8711f,
+    -128.9942f, -128.9923f, -128.9845f, -128.9713f, -128.9502f, -128.9258f, -128.9199f, -128.7777f,
+    -128.7626f, -128.8900f, -128.7467f, -128.7463f, -128.7138f, -128.6990f, -128.7498f, -128.8770f,
+    -128.7915f, -128.7993f, -128.8216f, -128.8377f, -128.9846f, -128.9676f, -128.9588f, -128.8054f,
+    -128.7870f, -128.7795f, -128.7816f, -128.7557f, -128.7594f, -128.7492f, -128.7299f, -128.8512f,
+    -128.6920f, -128.6793f, -128.6916f, -128.7017f, -128.6890f, -128.7249f, -128.7440f, -128.7733f,
+    -128.8121f, -128.8122f, -128.9512f, -128.9411f, -128.7746f, -128.9315f, -128.7907f, -128.7841f,
+    -128.7845f, -128.7644f, -128.8802f, -128.8590f, -128.6928f, -128.7191f, -128.8344f, -128.7173f,
+    -128.8165f, -128.6663f, -128.7275f, -128.7580f, -128.7832f, -128.8057f, -128.8218f, -129.0048f,
+    -128.8561f, -128.8394f, -128.8292f, -128.8128f, -128.8005f, -128.7935f, -128.9380f, -128.9231f,
+    -128.7869f, -128.9131f, -128.9136f, -128.7625f, -128.7515f, -128.8672f, -128.8635f, -128.7413f,
+    -128.7463f, -128.7671f, -128.9476f, -128.9534f, -128.8464f, -128.8416f, -128.8283f, -128.8330f,
+    -128.8356f, -128.9566f, -128.8451f, -128.9722f, -128.9631f, -128.9274f, -128.8011f, -128.9045f,
+    -128.7796f, -128.7634f, -128.7552f, -128.8599f, -128.8697f, -128.7653f, -128.7816f, -128.7678f,
+    -128.8529f, -128.8664f, -129.0456f, -128.8844f, -128.8647f, -128.8482f, -128.8378f, -128.8159f,
+    -128.7479f, -128.8170f, -128.7867f, -128.7679f, -128.7010f, -128.7592f, -128.7487f, -128.8498f,
+    -128.8313f, -128.6673f, -128.6730f, -128.6461f, -128.6646f, -128.7046f, -128.7613f, -128.7770f,
+    -128.8027f, -128.7832f, -128.8840f, -128.8673f, -128.8548f, -128.8578f, -128.7312f, -128.7303f,
+    -128.7284f, -128.7283f, -128.7055f, -128.7190f, -128.8147f, -128.6943f, -128.6829f, -128.7877f,
+    -128.7930f, -128.7844f, -128.6969f, -128.7509f, -128.7532f, -128.7841f, -128.7993f, -128.7968f,
+    -128.8186f, -128.8024f, -128.7952f, -128.7985f, -128.7868f, -128.9331f, -128.9411f, -128.7979f,
+    -128.7816f, -128.7712f, -128.7610f, -128.8693f, -128.7271f, -128.7245f, -128.7165f, -128.7281f,
+    -128.8720f, -128.8879f, -128.7828f, -128.7936f, -128.9410f, -128.8274f, -128.8272f, -128.8150f,
+    -128.8139f, -128.8029f, -128.9295f, -128.6760f, -128.7498f, -128.7422f, -128.7703f, -128.8824f,
+    -128.7538f, -128.7486f, -128.7482f, -128.7426f, -128.7346f, -128.7478f, -128.9251f, -128.8250f,
+    -128.8299f, -128.9582f, -128.9840f, -128.8665f, -128.8600f, -129.0165f, -128.8724f, -128.8444f,
+    -128.8322f, -128.8115f, -128.8011f, -128.7832f, -128.9066f, -128.8991f, -128.7498f, -128.7492f,
+    -128.7431f, -128.6290f, -128.6205f, -128.7331f, -128.8658f, -128.7862f, -128.8106f, -128.8282f,
+    -128.8383f, -128.8416f, -128.8332f, -128.8281f
+};
 
-// ── Variables ─────────────────────────────────────────────────────────────
-unsigned long ultimo_envio = 0;
+static uint16_t indice_datos = 0;
+static uint32_t ultimo_us    = 0;
 
-// ══════════════════════════════════════════════════════════════════════════
-// Genera una señal sintética de prueba para verificar el filtro
-// sin necesidad de conectar un sensor real.
-//
-// Componentes:
-//   - Offset DC de -128 V (simula el offset del sensor real)
-//   - Señal útil lenta: senoide a 0.2 Hz (simula respiración)
-//   - Ruido de alta frecuencia (debe ser eliminado por el FIR)
-// ══════════════════════════════════════════════════════════════════════════
-float generar_senal_sintetica(float t_seg) {
-    float offset_dc   = -128.0f;
-    float senal_util   = 1.5f * sin(2.0f * PI * 0.2f * t_seg);   // 0.2 Hz
-    float ruido_rapido = ((float)random(-100, 100) / 100.0f) * 0.3f;
-
-    return offset_dc + senal_util + ruido_rapido;
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-// Lee una muestra real del ADC y la convierte a voltaje
-// ══════════════════════════════════════════════════════════════════════════
-float leer_adc_real() {
-    int lectura_adc = analogRead(PIN_ADC);
-    // ESP32 ADC: 12 bits (0–4095), rango 0–3.3 V por defecto
-    float voltaje = (float)lectura_adc * (3.3f / 4095.0f);
-    return voltaje;
-}
-
-// ══════════════════════════════════════════════════════════════════════════
 void setup() {
-    Serial.begin(BAUD_UART);
+    // Puerto USB (debug opcional)
+    Serial.begin(115200);
 
-    // UART2: solo TX en GPIO17, RX deshabilitado
-    Serial2.begin(BAUD_UART, SERIAL_8N1, -1, PIN_TX2);
+    // Serial2: TX en GPIO17, RX deshabilitado (-1)
+    Serial2.begin(115200, SERIAL_8N1, -1, 17);
 
-    if (USAR_ADC_REAL) {
-        analogReadResolution(12);
-        analogSetAttenuation(ADC_11db);  // Rango completo 0–3.3 V
-    } else {
-        randomSeed(analogRead(0));
-    }
-
-    Serial.println("ESP32 TX inicializado — fs = 10 Hz");
-    ultimo_envio = millis();
+    ultimo_us = micros();
+    Serial.println("ESP32 Emisor TX listo. Transmitiendo PPG real a 10 Hz...");
 }
 
-// ══════════════════════════════════════════════════════════════════════════
 void loop() {
-    unsigned long ahora = millis();
+    uint32_t ahora = micros();
+    if ((uint32_t)(ahora - ultimo_us) < PERIODO_US) return;
+    ultimo_us += PERIODO_US;   // Incremento fijo para evitar drift acumulado
 
-    if (ahora - ultimo_envio >= PERIODO_MS) {
-        ultimo_envio += PERIODO_MS;  // Mantiene timing preciso sin drift
+    // Leer dato desde Flash (PROGMEM) — circular sobre las 300 muestras
+    float dato_enviar = pgm_read_float(&datos_paciente[indice_datos]);
+    indice_datos++;
+    if (indice_datos >= CANTIDAD_DATOS) indice_datos = 0;
 
-        float muestra;
+    // Transmitir 4 bytes (float32 little-endian) al Receptor por UART2
+    Serial2.write((uint8_t*)&dato_enviar, sizeof(float));
 
-        if (USAR_ADC_REAL) {
-            muestra = leer_adc_real();
-        } else {
-            float t = (float)ahora / 1000.0f;
-            muestra = generar_senal_sintetica(t);
-        }
-
-        // Transmitir 4 bytes binarios (float32 little-endian) al Receptor
-        Serial2.write((uint8_t*)&muestra, sizeof(float));
-    }
+    // Debug opcional — comentar en producción para no ocupar CPU
+    Serial.printf("TX[%03u]: %.4f\n", indice_datos, dato_enviar);
 }
