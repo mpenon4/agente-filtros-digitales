@@ -392,8 +392,7 @@ actualizarCaso();
             flush(app.serial);
 
             % Abrir directamente la ventana de monitoreo en vivo.
-            % El ESP32 ya debe estar en modo streaming (8 bytes/muestra).
-            app.lblSerial.Text = sprintf('Conectado a %s — monitoreo en vivo abierto.', puerto);
+            app.lblSerial.Text = sprintf('Conectado a %s - monitoreo en vivo abierto.', puerto);
             drawnow;
             fcFIR = 0.5;
             fcIIR = 0.01;

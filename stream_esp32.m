@@ -1,14 +1,12 @@
 function h = stream_esp32(s, nVentana, fs, fcFIR, fcIIR)
-%STREAM_ESP32 Visualiza el streaming CSV del ESP32 en tiempo real.
+%STREAM_ESP32 Visualiza el streaming BINARIO del ESP32 en tiempo real.
 %
-% El firmware envia:
-%   - Una cabecera de texto (primera linea): "crudo,filtrado"
-%   - Luego una linea por muestra a fs=10 Hz:
-%       <crudo>,<filtrado>\r\n
-%     Ejemplo: 0.81234,0.00123
+% El firmware envia 8 bytes por muestra a fs=10 Hz:
+%   Bytes 0-3 : float32 (single) cruda [V]
+%   Bytes 4-7 : float32 (single) filtrada [V]
 %
-% Protocolo: 115200 baud, 8N1, terminador CR/LF.
-% No se envia ningun dato al ESP32; esta funcion es solo receptora.
+% Protocolo: 115200 baud, 8N1. Sin cabecera de texto.
+% MATLAB lee con configureCallback 'byte' cada 8 bytes recibidos.
 %
 % Uso desde consola:
 %   s = serialport("COM4", 115200);
@@ -25,53 +23,65 @@ arguments
     fcIIR    (1, 1) double {mustBeNonnegative}             = 0.01
 end
 
-FFT_VENTANA = 128;
+BYTES_POR_MUESTRA = 8;   % 2 x float32 (cruda y filtrada)
+FFT_VENTANA       = 128;
 
 rawBuffer  = nan(1, nVentana);
 filtBuffer = nan(1, nVentana);
 idx        = 0;
 numValidas = 0;
-cabeceraSaltada = false;   % flag: se descarta la primera linea de texto
 
-rawFFTBuffer     = zeros(1, FFT_VENTANA);
-filtFFTBuffer    = zeros(1, FFT_VENTANA);
-fftIdx           = 0;
+rawFFTBuffer      = zeros(1, FFT_VENTANA);
+filtFFTBuffer     = zeros(1, FFT_VENTANA);
+fftIdx            = 0;
 fftMuestrasNuevas = 0;
-ventanaFFT       = hann(FFT_VENTANA).';
-freqFFT          = (0:(FFT_VENTANA / 2 - 1)) * (fs / FFT_VENTANA);
-fftCrudaDb       = nan(1, FFT_VENTANA / 2);
-fftFiltradaDb    = nan(1, FFT_VENTANA / 2);
+ventanaFFT        = hann(FFT_VENTANA).';
+freqFFT           = (0:(FFT_VENTANA/2-1)) * (fs/FFT_VENTANA);
+fftCrudaDb        = nan(1, FFT_VENTANA/2);
+fftFiltradaDb     = nan(1, FFT_VENTANA/2);
+
+erroresDecode = 0;
+MAX_ERRORES   = 20;
 
 % ---- Figura ----
-fig = figure('Name', 'Streaming ESP32 - cruda y filtrada (CSV)', ...
+fig = figure('Name', 'Streaming ESP32 - cruda y filtrada (float32 binario)', ...
     'NumberTitle', 'off', ...
     'CloseRequestFcn', @detenerStreaming);
 
-ax1 = subplot(2, 1, 1, 'Parent', fig);
-x = 1:nVentana;
-lineRaw  = plot(ax1, x, rawBuffer,  'Color', [0.20 0.20 0.20], 'LineWidth', 1.1);
-hold(ax1, 'on');
-lineFilt = plot(ax1, x, filtBuffer, 'Color', [0 0.35 0.80],    'LineWidth', 1.2);
-hold(ax1, 'off');
+ax1 = subplot(2, 2, 1, 'Parent', fig);
+t = (0:nVentana-1) / fs;
+lineRaw  = plot(ax1, t, rawBuffer,  'Color', [0.20 0.20 0.20], 'LineWidth', 1.1);
 grid(ax1, 'on');
-title(ax1, 'Senales en tiempo real — cruda vs. filtrada');
-xlabel(ax1, 'Muestra');
+title(ax1, 'Señal Cruda - Tiempo');
+xlabel(ax1, 'Tiempo (s)');
 ylabel(ax1, 'Amplitud (V)');
-legend(ax1, {'Cruda ADC', 'Filtrada'}, 'Location', 'best');
 
-ax2 = subplot(2, 1, 2, 'Parent', fig);
-lineFFTcruda    = plot(ax2, freqFFT, fftCrudaDb,    'Color', [0.20 0.20 0.20], 'LineWidth', 1.1);
-hold(ax2, 'on');
-lineFFTfiltrada = plot(ax2, freqFFT, fftFiltradaDb, 'Color', [0 0.35 0.80],    'LineWidth', 1.2);
-marcarCorte(ax2, fcFIR, sprintf('FIR LP %.3g Hz', fcFIR), [0 0.35 0.80]);
-marcarCorte(ax2, fcIIR, sprintf('IIR HP %.3g Hz', fcIIR), [0.82 0.12 0.12]);
-hold(ax2, 'off');
+ax2 = subplot(2, 2, 2, 'Parent', fig);
+lineFilt = plot(ax2, t, filtBuffer, 'Color', [0 0.35 0.80], 'LineWidth', 1.2);
 grid(ax2, 'on');
-title(ax2, sprintf('FFT en vivo — ventana %d muestras (Hann)', FFT_VENTANA));
-xlabel(ax2, 'Frecuencia (Hz)');
-ylabel(ax2, 'Magnitud (dB)');
-xlim(ax2, [0 fs / 2]);
-legend(ax2, {'Cruda', 'Filtrada'}, 'Location', 'best');
+title(ax2, 'Señal Filtrada - Tiempo');
+xlabel(ax2, 'Tiempo (s)');
+ylabel(ax2, 'Amplitud (V)');
+
+ax3 = subplot(2, 2, 3, 'Parent', fig);
+lineFFTcruda = plot(ax3, freqFFT, fftCrudaDb, 'Color', [0.20 0.20 0.20], 'LineWidth', 1.1);
+grid(ax3, 'on');
+title(ax3, 'Espectro (FFT) Cruda');
+xlabel(ax3, 'Frecuencia (Hz)');
+ylabel(ax3, 'Magnitud (dB)');
+xlim(ax3, [0 fs/2]);
+
+ax4 = subplot(2, 2, 4, 'Parent', fig);
+lineFFTfiltrada = plot(ax4, freqFFT, fftFiltradaDb, 'Color', [0 0.35 0.80], 'LineWidth', 1.2);
+hold(ax4, 'on');
+marcarCorte(ax4, fcFIR, sprintf('FIR LP %.3g Hz', fcFIR), [0 0.35 0.80]);
+marcarCorte(ax4, fcIIR, sprintf('IIR HP %.3g Hz', fcIIR), [0.82 0.12 0.12]);
+hold(ax4, 'off');
+grid(ax4, 'on');
+title(ax4, 'Espectro (FFT) Filtrada');
+xlabel(ax4, 'Frecuencia (Hz)');
+ylabel(ax4, 'Magnitud (dB)');
+xlim(ax4, [0 fs/2]);
 
 uicontrol(fig, 'Style', 'pushbutton', ...
     'String', 'Detener streaming', ...
@@ -79,12 +89,12 @@ uicontrol(fig, 'Style', 'pushbutton', ...
     'Position', [0.40 0.01 0.20 0.05], ...
     'Callback', @detenerStreaming);
 
-% ---- Configurar puerto serial para texto CR/LF ----
-configureTerminator(s, 'CR/LF');
+% ---- Configurar puerto serial para modo BINARIO ----
+configureTerminator(s, 'LF');
 flush(s);
 
-% Callback: se dispara en cada linea completa (\r\n recibido)
-configureCallback(s, 'terminator', @leerLinea);
+% El callback se dispara exactamente cada 8 bytes (1 muestra = 2 single)
+configureCallback(s, 'byte', BYTES_POR_MUESTRA, @leerPaquete);
 
 h = struct();
 h.figure = fig;
@@ -93,37 +103,35 @@ h.stop   = @() detenerStreaming([], []);
 
 % ---- Funciones anidadas ----
 
-    function leerLinea(src, ~)
+    function leerPaquete(src, ~)
+        % Lee 8 bytes correspondientes a 2 singles
         try
-            linea = readline(src);
+            bytes = read(src, BYTES_POR_MUESTRA, 'uint8');
         catch
             return;
         end
-
-        linea = strtrim(char(linea));
-
-        % Descartar cabecera "crudo,filtrado" y lineas vacias o no numericas
-        if isempty(linea)
-            return;
-        end
-        if ~cabeceraSaltada || contains(linea, 'crudo', 'IgnoreCase', true)
-            cabeceraSaltada = true;
+        if numel(bytes) < BYTES_POR_MUESTRA
             return;
         end
 
-        % Parseo CSV: "<crudo>,<filtrado>"
-        vals = sscanf(linea, '%f,%f');
-        if numel(vals) < 2
-            return;   % linea malformada — ignorar
-        end
+        % Decodificar floats (little-endian)
+        vals = typecast(uint8(bytes(:).'), 'single');
+        muestraCruda    = double(vals(1));
+        muestraFiltrada = double(vals(2));
 
-        muestraCruda    = vals(1);
-        muestraFiltrada = vals(2);
-
+        % Validar
         if ~isfinite(muestraCruda) || ~isfinite(muestraFiltrada)
+            erroresDecode = erroresDecode + 1;
+            if erroresDecode >= MAX_ERRORES && isvalid(fig)
+                fig.Name = sprintf('ADVERTENCIA: %d paquetes invalidos - verifique sinc.', ...
+                    erroresDecode);
+            end
+            % Descartar 1 byte para intentar resincronizar
+            try, read(src, 1, 'uint8'); catch, end
             return;
         end
 
+        erroresDecode = 0;
         agregarMuestra(muestraCruda, muestraFiltrada);
     end
 
@@ -152,7 +160,7 @@ h.stop   = @() detenerStreaming([], []);
         end
         fftMuestrasNuevas = 0;
 
-        ordenFFT         = [fftIdx + 1:FFT_VENTANA  1:fftIdx];
+        ordenFFT         = [fftIdx+1:FFT_VENTANA  1:fftIdx];
         crudaOrdenada    = rawFFTBuffer(ordenFFT);
         filtradaOrdenada = filtFFTBuffer(ordenFFT);
 
@@ -166,7 +174,7 @@ h.stop   = @() detenerStreaming([], []);
         if numValidas < nVentana
             orden = 1:nVentana;
         else
-            orden = [idx + 1:nVentana  1:idx];
+            orden = [idx+1:nVentana  1:idx];
         end
     end
 
@@ -184,10 +192,10 @@ end
 % ---- Funciones locales ----
 
 function magDb = calcularFFTdb(x, ventana, n)
-x      = x(:).' .* ventana;
-X      = fft(x);
-mag    = abs(X(1:n / 2)) / n;
-magDb  = 20 * log10(mag + eps);
+x     = x(:).' .* ventana;
+X     = fft(x);
+mag   = abs(X(1:n/2)) / n;
+magDb = 20 * log10(mag + eps);
 end
 
 function marcarCorte(ax, fc, etiqueta, color)
